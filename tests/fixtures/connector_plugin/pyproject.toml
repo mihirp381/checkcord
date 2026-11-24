@@ -1,0 +1,15 @@
+[project]
+name = "checkcord-example-plugin"
+version = "0.1.0"
+description = "A connector installed as its own package, for the registry tests."
+requires-python = ">=3.12"
+
+[project.entry-points."checkcord.connectors"]
+example = "checkcord_example_plugin:CONNECTORS"
+
+[build-system]
+requires = ["uv_build>=0.8,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""

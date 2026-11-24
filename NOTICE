@@ -1,0 +1,8 @@
+Checkcord
+Copyright 2026 The Checkcord Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It depends on third-party open source packages, each under its own license.
+The Python dependency set is pinned in uv.lock and the web dependency set in
+web/package-lock.json.

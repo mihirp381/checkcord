@@ -1,0 +1,57 @@
+# Environments
+.env
+.env.*
+!.env.example
+!.env.local-models.example
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# OS
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Local proxy runtime state (ledger/telemetry SQLite DBs, logs)
+.context/
+
+tests_output.txt
+scratch/
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
+sim/out/

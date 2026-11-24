@@ -1,0 +1,134 @@
+name: checkcord
+
+x-checkcord-env: &checkcord-env
+  DATABASE_URL: postgresql+asyncpg://checkcord_app:${CHECKCORD_APP_DB_PASSWORD:-checkcord_app}@postgres:5432/${POSTGRES_DB:-checkcord}
+  MIGRATION_DATABASE_URL: postgresql+asyncpg://checkcord_owner:${CHECKCORD_OWNER_DB_PASSWORD:-checkcord_owner}@postgres:5432/${POSTGRES_DB:-checkcord}
+  REDIS_URL: redis://redis:6379/0
+
+x-checkcord-service: &checkcord-service
+  # A published image (CHECKCORD_IMAGE=ghcr.io/mihirp381/checkcord:VERSION) or the local build.
+  image: ${CHECKCORD_IMAGE:-checkcord:local}
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  environment: *checkcord-env
+  # Lets the containers reach a model server on the host (Ollama, vLLM) on Linux too.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-checkcord}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-checkcord}
+      POSTGRES_DB: ${POSTGRES_DB:-checkcord}
+      CHECKCORD_OWNER_DB_PASSWORD: ${CHECKCORD_OWNER_DB_PASSWORD:-checkcord_owner}
+      CHECKCORD_APP_DB_PASSWORD: ${CHECKCORD_APP_DB_PASSWORD:-checkcord_app}
+    ports:
+      - "127.0.0.1:${CHECKCORD_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/roles.sql:/checkcord/roles.sql:ro
+      - ./deploy/postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-checkcord-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${CHECKCORD_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *checkcord-service
+    command: ["checkcord", "migrate"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *checkcord-service
+    command: ["checkcord", "api", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${CHECKCORD_BIND_ADDRESS:-127.0.0.1}:${CHECKCORD_API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=4)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  worker:
+    <<: *checkcord-service
+    command: ["checkcord", "worker", "--heartbeat-file", "/tmp/checkcord-worker.heartbeat"]
+    environment:
+      <<: *checkcord-env
+      # Health, readiness and metrics on port 9100, reachable only on the Compose network.
+      WORKER_HTTP_HOST: 0.0.0.0
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/readyz', timeout=4)"
+      interval: 15s
+      timeout: 10s
+      retries: 4
+      start_period: 30s
+
+  web:
+    build:
+      context: ./web
+    image: ${CHECKCORD_WEB_IMAGE:-checkcord-web:local}
+    environment:
+      CHECKCORD_API_URL: ${CHECKCORD_API_URL:-http://localhost:${CHECKCORD_API_PORT:-8000}}
+    ports:
+      - "${CHECKCORD_BIND_ADDRESS:-127.0.0.1}:${CHECKCORD_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
